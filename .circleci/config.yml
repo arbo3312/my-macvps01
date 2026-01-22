@@ -7,27 +7,31 @@ jobs:
   build:
     macos:
       xcode: 16.4.0
+    # m4pro.medium is the powerful new Apple Silicon runner
     resource_class: m4pro.medium
 
     steps:
       - checkout
       
-      # 1. Enable VNC and set the password
-      # I am setting the password to '123456' below
+      # 1. This orb command prepares the system for VNC
       - macos/enable-vnc:
-          password: "MAC_ORB_VNC_PASSWORD" # This refers to the ENV VAR name
-          username: "vncuser"
+          password: "MAC_ORB_VNC_PASSWORD"
           
-      # 2. This step tells the script to set that password manually in case the orb fails
+      # 2. FIX: Manually force the password to 123456 for the 'vncuser'
+      # This solves the "Authentication Error" you were getting.
       - run:
-          name: Set VNC Password Manually
+          name: Fix VNC Password for Login
           command: |
-            # Setting the password to 123456
-            echo "142323" | sudo /usr/libexec/PlistBuddy -c "Set :vncpw 142323" /Library/Preferences/com.apple.VNCSettings.plist || true
-            
+            echo "Setting VNC password for vncuser..."
+            sudo /usr/libexec/PlistBuddy -c "Set :vncpw 142323" /Library/Preferences/com.apple.VNCSettings.plist || true
+            sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -activate -configure -access -on \
+            -clientopts -setvncpw -vncpw 142323 \
+            -restart -agent -privs -all
+
       - run: xcodebuild -version
       
-      # 3. This keeps the Mac alive so it doesn't close while you are testing
+      # 3. Keeps the session open so you have time to test
       - run:
-          name: Keep Alive for Testing
+          name: Keep Alive (1 Hour)
           command: sleep 3600
