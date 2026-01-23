@@ -27,57 +27,52 @@ jobs:
             -restart -agent -privs -all
 
       - run:
-          name: Robust Install (Chrome and PlayCover)
+          name: Fix Chrome and PlayCover Installation
           command: |
-            # 1. Check Space Before Starting
-            echo "--- Current Disk Usage ---"
-            df -h /
+            echo "--- System Check ---"
+            sw_vers  # This prints the exact macOS version for the logs
             
-            # 2. Setup a clean workspace
-            mkdir -p ~/Downloads/installers
-            cd ~/Downloads/installers
+            # 1. Setup installers directory
+            mkdir -p /tmp/installers
+            cd /tmp/installers
 
-            # 3. Download Chrome with 'Resume' and 'Silent' flags
+            # 2. Install Chrome
             echo "--- Downloading Chrome ---"
-            curl -L -O -C - "https://dl.google.com/chrome/mac/universal/stable/GGRO/googlechrome.dmg"
+            curl -L -O "https://dl.google.com/chrome/mac/universal/stable/GGRO/googlechrome.dmg"
             
-            # 4. Mount and Install with Error Checking
-            echo "--- Installing Chrome ---"
-            # Attach DMG and grab the mount point name
-            MOUNT_DIR=$(hdiutil attach googlechrome.dmg -noprompt -nobrowse | grep "/Volumes/" | awk -F '\t' '{print $3}')
+            echo "--- Attaching Chrome DMG ---"
+            # We use '-plist' to get machine-readable output and avoid UI prompts
+            # We removed '-noprompt' to avoid the "unknown option" error
+            MOUNT_INFO=$(hdiutil attach googlechrome.dmg -nobrowse -plist)
+            MOUNT_DIR=$(echo "$MOUNT_INFO" | grep -A 1 "mount-point" | grep string | sed 's/<[^>]*>//g' | xargs)
             
             if [ -d "$MOUNT_DIR" ]; then
-                echo "Successfully mounted to $MOUNT_DIR"
+                echo "Mounted at: $MOUNT_DIR"
                 sudo cp -R "$MOUNT_DIR/Google Chrome.app" /Applications/
                 hdiutil detach "$MOUNT_DIR"
-                echo "Chrome installed successfully."
+                echo "Chrome installed."
             else
-                echo "ERROR: Failed to mount Chrome DMG."
-                exit 1
+                echo "Error: Could not mount Chrome. Trying fallback..."
+                # Fallback: simple attach
+                hdiutil attach googlechrome.dmg -nobrowse
+                sudo cp -R "/Volumes/Google Chrome/Google Chrome.app" /Applications/
+                hdiutil detach "/Volumes/Google Chrome"
             fi
 
-            # 5. PlayCover Installation
+            # 3. Install PlayCover
             echo "--- Downloading PlayCover ---"
             PLAYCOVER_URL=$(curl -s https://api.github.com/repos/PlayCover/PlayCover/releases/latest | grep "browser_download_url.*dmg" | cut -d : -f 2,3 | tr -d \")
-            curl -L -O -C - "$PLAYCOVER_URL"
+            curl -L -o playcover.dmg "$PLAYCOVER_URL"
             
-            echo "--- Installing PlayCover ---"
-            # Using a wildcard for PlayCover as the volume name can change with versions
-            PLAY_MOUNT=$(hdiutil attach PlayCover*.dmg -noprompt -nobrowse | grep "/Volumes/" | awk -F '\t' '{print $3}')
+            echo "--- Attaching PlayCover DMG ---"
+            hdiutil attach playcover.dmg -nobrowse
+            # Using wildcard since volume names often have version numbers
+            sudo cp -R /Volumes/PlayCover*/PlayCover.app /Applications/
+            hdiutil detach /Volumes/PlayCover*
             
-            if [ -n "$PLAY_MOUNT" ]; then
-                sudo cp -R "$PLAY_MOUNT/PlayCover.app" /Applications/
-                hdiutil detach "$PLAY_MOUNT"
-                echo "PlayCover installed successfully."
-            else
-                echo "ERROR: Failed to mount PlayCover DMG."
-                exit 1
-            fi
-
-            # 6. Final Cleanup to reclaim space
-            rm -rf ~/Downloads/installers
-            echo "--- Final Disk Space ---"
-            df -h /
+            echo "--- Cleaning Up ---"
+            rm -rf /tmp/installers
+            echo "Installation Complete!"
             
 
       - run: xcodebuild -version
